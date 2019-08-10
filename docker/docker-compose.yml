@@ -1,0 +1,169 @@
+version: '2.2'
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:7.1.1
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - cluster.name=docker-cluster
+      - node.name=node1
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms384m -Xmx384m"
+      - "discovery.zen.ping.unicast.hosts=elasticsearch2"
+      - "cluster.initial_master_nodes=node1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es7data1:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - es7net
+
+  elasticsearch2:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:7.1.1
+    container_name: elasticsearch2
+    restart: unless-stopped
+    environment:
+      - cluster.name=docker-cluster
+      - node.name=node2
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms384m -Xmx384m"
+      - "discovery.zen.ping.unicast.hosts=elasticsearch"
+      - "cluster.initial_master_nodes=node1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es7data2:/usr/share/elasticsearch/data
+    networks:
+      - es7net   
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana-oss:7.1.1
+    container_name: kibana
+    environment:
+      SERVER_NAME: kibana_server
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    networks:
+      - es7net
+    depends_on:
+      - elasticsearch
+    ports:
+      - 5601:5601
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.0.0
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:5.0.0
+    hostname: kafka
+    ports:
+      - '9092:9092'
+      - '29092:29092'
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      # Following line is needed for Kafka versions 0.11+
+      # in case you run less than 3 Kafka brokers in your
+      # cluster because the broker config
+      # `offsets.topic.replication.factor` (default: 3)
+      # is now enforced upon topic creation
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  jupyter:
+    image: jupyter/all-spark-notebook
+    container_name: jupyter
+    ports:
+      - "8889:8888"
+      - "4040:4040"
+      - "4041:4041"
+    expose:
+      - "9999"
+    command: start-notebook.sh --NotebookApp.token=''
+    volumes:
+      - ./dataset:/home/jovyan/dataset
+      - ./spark:/home/jovyan/spark
+    links:
+      - mysql
+      - hadoop
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=iii
+    volumes:
+      - /tmp/mysql_db/mysql_data:/var/lib/mysql
+      - /tmp/mysql_db/mysql_init:/docker-entrypoint-initdb.d/
+  
+  python3:
+    image: orozcohsu/alpine-py3-pandas-nltk
+    container_name: python3
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./python:/root/python 
+      - exchange-hdfs:/root/exchange-hdfs
+
+  hadoop:
+    image: orozcohsu/ha-sp-ze-zo-hi-fl:v7
+    container_name: hadoop
+    hostname: master
+    environment:
+      - "NODE_TYPE=master"
+    expose:
+      - "50070"
+      - "9000"
+    ports:
+      - "8088:8088"
+      - "50070:50070"
+      - "9000:9000"
+      - "2222:22"
+      - "8080:8080"
+      - "18080:18080"
+      - "10000:10000"
+      - "10002:10002"
+      - "9083:9083"
+    volumes:
+      - /tmp/docker-cluster-hadoop-name/:/data/dfs/name/
+      - /tmp/docker-cluster-hadoop-data/:/data/dfs/data/
+      - /tmp/docker-cluster-hadoop-logs/:/usr/local/hadoop/logs/
+      - /tmp/docker-cluster-zookeeper-logs/:/var/log/zookeeper/
+      - /tmp/docker-cluster-zeppelin-logs/:/usr/local/zeppelin/log
+      - ./mapreduce:/root/mapreduce
+      
+  mongodb:
+    image: mongo:4.1
+    container_name: mongo4
+    ports:
+      - "27017:27017"
+    volumes:
+      - "./data/mongo/data:/data/db"
+
+
+volumes:
+  es7data1:
+    driver: local
+  es7data2:
+    driver: local
+  exchange-hdfs:
+  
+networks:
+  es7net:
